@@ -31,3 +31,7 @@ env/
 .vscode/
 .idea/
 .DS_Store
+
+# Project documentation/files to keep private
+*.pdf
+spec.md
