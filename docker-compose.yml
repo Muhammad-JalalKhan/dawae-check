@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: dawae
+      POSTGRES_PASSWORD: dawae_pass
+      POSTGRES_DB: dawaecheck
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dawae:dawae_pass@db:5432/dawaecheck
+      MOCK_AI_ENGINE: "true"
+    depends_on:
+      - db
+
+volumes:
+  pgdata:

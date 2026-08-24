@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: dawae-check-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: MOCK_AI_ENGINE
+        value: "true"
+      - key: DASHSCOPE_API_KEY
+        sync: false
