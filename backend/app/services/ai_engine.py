@@ -3,8 +3,12 @@
 When MOCK_AI_ENGINE=true (default for dev), returns hardcoded Augmentin data
 that matches the seed DB for easy end-to-end testing.
 
-When MOCK_AI_ENGINE=false, calls a vision-language model (Qwen2.5-VL or any
+When MOCK_AI_ENGINE=false, calls a vision-language model (Qwen-VL or any
 OpenAI-compatible endpoint) via AsyncOpenAI for real OCR and defect detection.
+
+This module performs NO database access. It returns the extracted OCR fields
+(including the medicine ``brand_name``) to the caller, which decides how to
+resolve them against the batch registry.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import base64
 import json
 import logging
 import re
+import traceback
 
 from openai import AsyncOpenAI
 
@@ -31,6 +36,7 @@ _MOCK_RESPONSE: dict = {
         "batch_number": "B492",
         "expiry_date": "2026-12-31",
         "drap_reg_number": "REG-PAK-00201",
+        "brand_name": "Augmentin 14 Tablets",
     },
     "visual": {
         "print_quality_score": 72,
@@ -45,28 +51,48 @@ _MOCK_RESPONSE: dict = {
 }
 
 # ── Vision prompt ────────────────────────────────────────────────────────────
-# Instructs the model to perform OCR token extraction AND physical print
-# defect detection with bounding boxes on a 0–1000 normalized integer scale.
+# Sent as the SYSTEM message. Strict forensic instruction: aggressive OCR
+# (batch/expiry on carton flaps and stamps) plus defect detection with tight
+# bounding boxes around suspicious numbers and suspicious color tones.
+# Missing OCR fields are returned as JSON null (handled by _ocr_str).
 
 _VISION_PROMPT = """\
-You are a pharmaceutical packaging inspection AI.
-Analyze the provided macro photograph of medicine packaging and return ONLY valid JSON (no markdown, no commentary).
+You are a senior forensic pharmaceutical packaging inspector. Inspect this real mobile-captured medicine package.
 
-Your response MUST be a single JSON object with exactly this structure:
+Perform two tasks:
+1. OCR EXTRACTION:
+   Extract the following fields from the packaging:
+   - "brand_name": (e.g. "Augmentin", "C-Retard", "Adol", "Panadol")
+   - "batch_number": Look at carton flaps, embossed stamps, or printed text labeled "Batch", "B.No", "Lot".
+   - "expiry_date": Standardize to YYYY-MM-DD (or YYYY-MM). Look for "Exp", "Expiry", "Validity".
+   - "gtin": 14-digit GS1 barcode number if visible, else null.
+   - "drap_reg_number": DRAP / drug registration code if visible (labels like "DRAP", "Reg. No", "Regn. No"), else null.
+
+2. FORENSIC DEFECT DETECTION & BOUNDING BOXES:
+   Inspect the physical packaging closely:
+   A. NUMBER & TYPOGRAPHY INTEGRITY: Inspect the printed batch number, manufacturing date, and expiry date. Check for fuzzy ink bleeding, inconsistent font weights, restamping, or manual alteration.
+   B. COLOR TONE & PRINT QUALITY: Inspect the background color tone, branding panels, and logos. Check for uneven color gradients, faded hues, inkjet halftone dot dithering (cheap reprint), or color shifts compared to standard pharmaceutical cartons.
+
+   If you find ANY defect or suspicious area (such as an altered number, blurry text, missing registration code, or abnormal color tone), you MUST add an entry to "detected_defects" with the exact 2D bounding box [ymin, xmin, ymax, xmax] on a normalized 0-1000 integer scale:
+   - For suspicious numbers: draw the bounding box tightly around the batch or expiry digits.
+   - For abnormal color tone: draw the bounding box over the suspicious colored panel or logo.
+
+Return ONLY a valid JSON object matching this schema (no markdown, no extra text):
 {
   "ocr": {
-    "gtin": "<string: 14-digit GTIN barcode number, or empty string if not found>",
-    "batch_number": "<string: batch/lot number printed on packaging, or empty string>",
-    "expiry_date": "<string: expiry date in YYYY-MM-DD format, or empty string>",
-    "drap_reg_number": "<string: DRAP registration number if visible, or empty string>"
+    "brand_name": "string or null",
+    "batch_number": "string or null",
+    "expiry_date": "YYYY-MM-DD or null",
+    "gtin": "string or null",
+    "drap_reg_number": "string or null"
   },
   "visual": {
-    "print_quality_score": <integer 0-100: overall physical print quality score where 100 = perfect offset lithography, lower = more defects>,
+    "print_quality_score": integer between 0 and 100,
     "detected_defects": [
       {
-        "label": "<string: one of 'Digital Halftone Ink Dots Detected', 'Typography Edge Blur', 'Barcode Contrast Degradation', 'Color Logo Boundary Shift'>",
-        "confidence": <float 0.0-1.0>,
-        "bbox_2d": [<ymin>, <xmin>, <ymax>, <xmax>]
+        "label": "Short description (e.g. 'Altered Expiry Typography' or 'Inconsistent Color Tone')",
+        "confidence": float between 0.0 and 1.0,
+        "bbox_2d": [ymin, xmin, ymax, xmax]
       }
     ]
   }
@@ -74,24 +100,17 @@ Your response MUST be a single JSON object with exactly this structure:
 
 CRITICAL RULES for bbox_2d:
 - Each coordinate (ymin, xmin, ymax, xmax) MUST be an INTEGER on a scale of 0 to 1000.
-- The scale represents the image dimensions normalized to 1000: 0 = top/left edge, 1000 = bottom/right edge.
+- 0 = top/left edge, 1000 = bottom/right edge of the image.
 - ymin < ymax and xmin < xmax always.
 - If no defects are detected, detected_defects must be an empty array [].
 
-Inspect carefully for these physical print defect types:
-1. Digital Halftone Ink Dots Detected — visible CMYK dithering dots typical of inkjet/laser prints (not offset lithography). Severe penalty.
-2. Typography Edge Blur — blurred or fuzzy text edges, ink bleed on letter boundaries.
-3. Barcode Contrast Degradation — low contrast, faded, or smeared barcode bars that would impair scanning.
-4. Color Logo Boundary Shift — misaligned color registration, logo color bleeding, or boundary shift.
+Scoring guidance (start at 100 = flawless factory offset lithography):
+- Inkjet halftone dot dithering / cheap reprint: subtract up to 45 points.
+- Fuzzy ink bleeding, inconsistent font weights, restamped or altered numbers: subtract up to 30 points.
+- Uneven color gradients, faded hues, color shifts: subtract up to 25 points.
+- Missing or suspicious registration code: subtract up to 20 points.
 
-Score print_quality_score based on:
-- Start at 100 (perfect offset lithography).
-- Digital halftone dithering: subtract up to 45 points.
-- Typography edge blur / ink bleed: subtract up to 25 points.
-- Barcode contrast degradation: subtract up to 20 points.
-- Color / logo boundary shift: subtract up to 15 points.
-
-Return ONLY the raw JSON object. Do NOT wrap in markdown code blocks.
+Return ONLY the raw JSON object now.
 """
 
 
@@ -128,30 +147,32 @@ def _extract_json(text: str) -> dict | list | None:
     return None
 
 
+def _ocr_str(value: object) -> str:
+    """Normalize an OCR field to a stripped string.
+
+    The forensic prompt allows the model to return JSON ``null`` for fields it
+    cannot read. Those must become empty strings (not the string ``"None"``)
+    so downstream DB lookups treat them as missing.
+    """
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def _parse_model_response(raw: str) -> dict:
     """Parse the model's raw text response into a validated dict.
 
-    Handles markdown fences, reasoning/thinking preamble, and provides a
-    fallback error structure if parsing fails.
+    Handles markdown fences and reasoning/thinking preamble. Raises ``ValueError``
+    when no valid JSON object/array can be extracted — callers must NOT swallow
+    this with a silent default score (see :func:`analyze_packaging`).
     """
     data = _extract_json(raw)
 
     if data is None:
-        logger.error("Failed to extract JSON from AI response.\nRaw: %s", raw[:1000])
-        # Fallback: return a safe structure so the pipeline doesn't crash
-        return {
-            "ocr": {
-                "gtin": "",
-                "batch_number": "",
-                "expiry_date": "",
-                "drap_reg_number": "",
-            },
-            "visual": {
-                "print_quality_score": 0,
-                "detected_defects": [],
-            },
-            "_parse_error": "No valid JSON object/array found in model response",
-        }
+        raise ValueError(
+            "No valid JSON object/array found in model response. "
+            f"Raw (first 1000 chars): {raw[:1000]!r}"
+        )
 
     # If the model returned an array, wrap it in our expected object shape
     if isinstance(data, list):
@@ -168,10 +189,11 @@ def _parse_model_response(raw: str) -> dict:
 
     return {
         "ocr": {
-            "gtin": str(ocr.get("gtin", "")),
-            "batch_number": str(ocr.get("batch_number", "")),
-            "expiry_date": str(ocr.get("expiry_date", "")),
-            "drap_reg_number": str(ocr.get("drap_reg_number", "")),
+            "gtin": _ocr_str(ocr.get("gtin")),
+            "batch_number": _ocr_str(ocr.get("batch_number")),
+            "expiry_date": _ocr_str(ocr.get("expiry_date")),
+            "drap_reg_number": _ocr_str(ocr.get("drap_reg_number")),
+            "brand_name": _ocr_str(ocr.get("brand_name")),
         },
         "visual": {
             "print_quality_score": float(visual.get("print_quality_score", 0)),
@@ -227,6 +249,7 @@ async def analyze_packaging(image_bytes: bytes) -> dict:
                 "batch_number": str,
                 "expiry_date": str (YYYY-MM-DD),
                 "drap_reg_number": str,
+                "brand_name": str,
             },
             "visual": {
                 "print_quality_score": float (0-100),
@@ -236,16 +259,28 @@ async def analyze_packaging(image_bytes: bytes) -> dict:
                 ],
             }
         }
+
+    Raises
+    ------
+    RuntimeError
+        If the model API call fails or the response cannot be parsed as JSON.
+        Failures are printed with a full traceback and NEVER masked with a
+        default score.
     """
     if settings.MOCK_AI_ENGINE:
         logger.info("MOCK_AI_ENGINE=true — returning hardcoded Augmentin mock payload")
         return _MOCK_RESPONSE.copy()
 
     # ── Live AI inference via OpenAI-compatible API ──────────────────────────
+    endpoint = settings.DASHSCOPE_BASE_URL
+    model = settings.AI_MODEL_NAME
+    # Verbose, always-on-console logging so test runs can see the exact call.
+    print(f"[ai_engine] Calling vision endpoint: {endpoint}")
+    print(f"[ai_engine] Using model: {model}")
     logger.info(
         "MOCK_AI_ENGINE=false — calling live model '%s' at %s",
-        settings.AI_MODEL_NAME,
-        settings.DASHSCOPE_BASE_URL,
+        model,
+        endpoint,
     )
 
     # Encode image to base64 data URI for the vision API
@@ -256,8 +291,9 @@ async def analyze_packaging(image_bytes: bytes) -> dict:
 
     try:
         response = await client.chat.completions.create(
-            model=settings.AI_MODEL_NAME,
+            model=model,
             messages=[
+                {"role": "system", "content": _VISION_PROMPT},
                 {
                     "role": "user",
                     "content": [
@@ -267,33 +303,46 @@ async def analyze_packaging(image_bytes: bytes) -> dict:
                         },
                         {
                             "type": "text",
-                            "text": _VISION_PROMPT,
+                            "text": (
+                                "Analyze this packaging image and return the JSON "
+                                "object now."
+                            ),
                         },
                     ],
-                }
+                },
             ],
             temperature=0.1,
             max_tokens=2048,
         )
     except Exception as exc:
-        logger.error("AI model API call failed: %s", exc)
+        # Do NOT mask the error with a default score — print the full traceback.
+        print(f"[ai_engine] AI model API call FAILED: {exc}")
+        traceback.print_exc()
+        logger.error("AI model API call failed: %s", exc, exc_info=True)
         raise RuntimeError(f"AI model API call failed: {exc}") from exc
 
-    # Extract raw text from the response
+    # Extract raw text from the response and print it BEFORE parsing.
     raw_text = response.choices[0].message.content or ""
+    print("[ai_engine] ── RAW MODEL RESPONSE (pre-parse) " + "─" * 30)
+    print(raw_text)
+    print("[ai_engine] ── END RAW MODEL RESPONSE " + "─" * 37)
     logger.info("AI model raw response length: %d chars", len(raw_text))
 
-    # Parse and validate the structured JSON response
-    result = _parse_model_response(raw_text)
-
-    if "_parse_error" in result:
-        logger.warning("AI response had parse errors; returning safe fallback")
+    # Parse and validate the structured JSON response — loud on failure.
+    try:
+        result = _parse_model_response(raw_text)
+    except Exception as exc:
+        print(f"[ai_engine] JSON parsing FAILED: {exc}")
+        traceback.print_exc()
+        logger.error("Failed to parse AI model JSON response: %s", exc, exc_info=True)
+        raise RuntimeError(f"Failed to parse AI model JSON response: {exc}") from exc
 
     logger.info(
-        "AI analysis complete — OCR gtin=%s batch=%s expiry=%s | visual score=%.1f defects=%d",
+        "AI analysis complete — OCR gtin=%s batch=%s expiry=%s brand=%s | visual score=%.1f defects=%d",
         result["ocr"]["gtin"],
         result["ocr"]["batch_number"],
         result["ocr"]["expiry_date"],
+        result["ocr"]["brand_name"],
         result["visual"]["print_quality_score"],
         len(result["visual"]["detected_defects"]),
     )

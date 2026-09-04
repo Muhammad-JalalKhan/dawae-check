@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -16,11 +16,11 @@ class ResultScreen extends StatelessWidget {
   const ResultScreen({
     super.key,
     required this.result,
-    required this.imagePath,
+    required this.imageBytes,
   });
 
   final VerifyResponse result;
-  final String imagePath;
+  final Uint8List imageBytes;
 
   Color get _verdictColor {
     switch (result.verdict) {
@@ -67,7 +67,7 @@ class ResultScreen extends StatelessWidget {
               requestId: result.requestId,
             ),
             _ImageWithOverlay(
-              imagePath: imagePath,
+              imageBytes: imageBytes,
               defects: result.layer2VisualCheck.detectedDefects,
             ),
             Padding(
@@ -163,16 +163,16 @@ class _VerdictBanner extends StatelessWidget {
   }
 }
 
-/// Captured image with defect bounding boxes drawn on top.
+/// Captured or selected image with defect bounding boxes drawn on top.
 ///
-/// The image is displayed with BoxFit.contain inside a fixed-ratio container.
+/// Uses in-memory bytes so the preview works on Flutter Web and mobile.
 class _ImageWithOverlay extends StatelessWidget {
   const _ImageWithOverlay({
-    required this.imagePath,
+    required this.imageBytes,
     required this.defects,
   });
 
-  final String imagePath;
+  final Uint8List imageBytes;
   final List<DetectedDefect> defects;
 
   @override
@@ -182,8 +182,8 @@ class _ImageWithOverlay extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.file(
-            File(imagePath),
+          Image.memory(
+            imageBytes,
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => const ColoredBox(
               color: Colors.black26,

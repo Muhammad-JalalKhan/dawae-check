@@ -48,6 +48,10 @@
     <key>NSCameraUsageDescription</key>
     <string>Dawae-Check needs camera access to capture macro photos of medicine packaging for verification.</string>
 
+    <!-- Gallery permission -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Dawae-Check needs photo library access to verify existing medicine packaging images.</string>
+
     <!-- Location permission (optional, for scan geo-tagging) -->
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Dawae-Check uses your location to tag scan facilities.</string>

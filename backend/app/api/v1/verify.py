@@ -29,10 +29,17 @@ router = APIRouter(tags=["verify"])
 def _build_technical_summary(verdict: str, layer1: dict, layer2: dict) -> str:
     """Generate a human-readable technical summary string."""
     if verdict == "GENUINE":
-        return (
+        summary = (
             "Packaging passed both database and visual inspection. "
             "Batch is registered and print quality is within acceptable parameters."
         )
+        drap_status = (layer1.get("matched_record") or {}).get("drap_status")
+        if drap_status == "INFERRED_FROM_REGISTRY":
+            summary += (
+                " DRAP registration number was not printed on the scanned "
+                "flap and was inferred from the official registry."
+            )
+        return summary
     parts: list[str] = []
     if layer1["status"] == "FAILED":
         parts.append(
@@ -40,10 +47,15 @@ def _build_technical_summary(verdict: str, layer1: dict, layer2: dict) -> str:
         )
     if layer2["status"] == "FAILED":
         defects = layer2.get("detected_defects", [])
-        labels = [d["label"] for d in defects[:3]]
-        parts.append(
-            f"Visual inspection flagged: {', '.join(labels)}."
-        )
+        labels = [d["label"] for d in defects[:3] if d.get("label")]
+        if labels:
+            parts.append(
+                f"Visual inspection flagged: {', '.join(labels)}."
+            )
+        else:
+            parts.append(
+                "Visual inspection failed because print quality was below the acceptable threshold."
+            )
     if not parts:
         parts.append("One or more verification layers flagged anomalies.")
     return " ".join(parts)
@@ -78,6 +90,7 @@ async def verify_packaging(
     extracted_batch: str = ocr.get("batch_number", "")
     extracted_expiry: str = ocr.get("expiry_date", "")
     extracted_drap: str = ocr.get("drap_reg_number", "")
+    extracted_brand: str = ocr.get("brand_name", "")
 
     # 3. Layer-1: database gate
     layer1_result = await check_database_gate(
@@ -88,6 +101,8 @@ async def verify_packaging(
         facility_id=facility_id,
         latitude=latitude,
         longitude=longitude,
+        extracted_brand_name=extracted_brand,
+        extracted_drap=extracted_drap,
     )
 
     s_db: int = layer1_result["s_db"]

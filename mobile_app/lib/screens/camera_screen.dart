@@ -1,7 +1,9 @@
-import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../core/constants.dart';
@@ -33,6 +35,7 @@ class _CameraScreenState extends State<CameraScreen>
   /// Scanning-tips card shown once per app launch.
   bool _showGuide = true;
 
+  final ImagePicker _imagePicker = ImagePicker();
   final List<double> _zoomSteps = [1.0, 2.0, 3.0];
 
   @override
@@ -147,63 +150,111 @@ class _CameraScreenState extends State<CameraScreen>
       return;
     }
 
+    HapticFeedback.mediumImpact();
     setState(() => _isCapturing = true);
 
     try {
       final file = await controller.takePicture();
-      final imageFile = File(file.path);
-
-      setState(() => _statusMessage = 'Uploading for verification...');
-
-      final resultJson = await ApiService.verifyPackaging(
-        imageFile: imageFile,
-        deviceId: DemoIdentity.deviceId,
-        facilityId: DemoIdentity.facilityId,
+      await _verifyImage(
+        imageFile: file,
+        sourceLabel: 'camera capture',
       );
-
-      // Print the full verification JSON to the debug console (Phase 2 exit condition).
-      debugPrint('Verification result: $resultJson');
-
-      if (!mounted) return;
-
-      final result = VerifyResponse.fromJson(resultJson);
-
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => ResultScreen(
-            result: result,
-            imagePath: file.path,
-          ),
-        ),
-      );
-
-      setState(() => _statusMessage = null);
-    } on ApiException catch (e) {
-      debugPrint('Verification failed: $e');
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => ErrorScreen(error: e.error),
-        ),
-      );
-      setState(() => _statusMessage = 'Verification failed');
     } on CameraException catch (e) {
-      setState(() => _statusMessage = 'Capture failed: ${e.description}');
+      if (mounted) {
+        setState(() => _statusMessage = 'Capture failed: ${e.description}');
+      }
     } catch (e) {
-      debugPrint('Unexpected error: $e');
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => ErrorScreen(
-            error: VerificationError(statusCode: null, message: e.toString()),
-          ),
-        ),
-      );
-      setState(() => _statusMessage = 'Verification failed');
+      await _showVerificationError(e);
     } finally {
       if (mounted) {
         setState(() => _isCapturing = false);
       }
+    }
+  }
+
+  Future<void> _pickFromGalleryAndUpload() async {
+    if (_isCapturing) return;
+
+    HapticFeedback.mediumImpact();
+    setState(() => _isCapturing = true);
+
+    try {
+      final pickedImage = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 95,
+      );
+
+      if (pickedImage == null) {
+        if (mounted) setState(() => _statusMessage = null);
+        return;
+      }
+
+      await _verifyImage(
+        imageFile: pickedImage,
+        sourceLabel: 'gallery image',
+      );
+    } catch (e) {
+      await _showVerificationError(e);
+    } finally {
+      if (mounted) {
+        setState(() => _isCapturing = false);
+      }
+    }
+  }
+
+  Future<void> _verifyImage({
+    required XFile imageFile,
+    required String sourceLabel,
+  }) async {
+    if (mounted) {
+      setState(() => _statusMessage = 'Uploading for verification...');
+    }
+
+    final imageBytes = await imageFile.readAsBytes();
+    final resultJson = await ApiService.verifyPackaging(
+      imageFile,
+      imageBytes: imageBytes,
+      deviceId: DemoIdentity.deviceId,
+      facilityId: DemoIdentity.facilityId,
+    );
+
+    // Print the full verification JSON to the debug console (Phase 2 exit condition).
+    debugPrint('Verification result ($sourceLabel): $resultJson');
+
+    if (!mounted) return;
+
+    final result = VerifyResponse.fromJson(resultJson);
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ResultScreen(
+          result: result,
+          imageBytes: imageBytes,
+        ),
+      ),
+    );
+
+    if (mounted) {
+      setState(() => _statusMessage = null);
+    }
+  }
+
+  Future<void> _showVerificationError(Object error) async {
+    debugPrint('Verification failed: $error');
+    if (!mounted) return;
+
+    final verificationError = error is ApiException
+        ? error.error
+        : VerificationError(statusCode: null, message: error.toString());
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ErrorScreen(error: verificationError),
+      ),
+    );
+
+    if (mounted) {
+      setState(() => _statusMessage = 'Verification failed');
     }
   }
 
@@ -227,6 +278,12 @@ class _CameraScreenState extends State<CameraScreen>
             if (!_isInitializing && controller != null && controller.value.isInitialized)
               const CameraReticle(),
 
+            // Dynamic enterprise-scanner corner brackets around the reticle
+            if (!_isInitializing && controller != null && controller.value.isInitialized)
+              Center(
+                child: _ScannerBrackets(active: _isCapturing),
+              ),
+
             // Top bar
             Positioned(
               top: 0,
@@ -238,7 +295,7 @@ class _CameraScreenState extends State<CameraScreen>
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Colors.black.withOpacity(0.7), Colors.transparent],
+                    colors: [Colors.black.withValues(alpha: 0.7), Colors.transparent],
                   ),
                 ),
                 child: Row(
@@ -283,6 +340,49 @@ class _CameraScreenState extends State<CameraScreen>
                 ),
               ),
 
+            // Persistent scanning guidance banner
+            if (!_isInitializing && controller != null && controller.value.isInitialized)
+              Positioned(
+                bottom: 205,
+                left: 24,
+                right: 24,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppTheme.accent.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          color: AppTheme.accent,
+                          size: 18,
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Tip: Align carton flap showing Batch No & Expiry',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
             // Zoom controls
             Positioned(
               bottom: 140,
@@ -303,7 +403,7 @@ class _CameraScreenState extends State<CameraScreen>
                           shape: BoxShape.circle,
                           color: selected
                               ? AppTheme.primary
-                              : Colors.black.withOpacity(0.5),
+                              : Colors.black.withValues(alpha: 0.5),
                           border: Border.all(
                             color: selected ? AppTheme.accent : Colors.white54,
                             width: 2,
@@ -325,41 +425,65 @@ class _CameraScreenState extends State<CameraScreen>
               ),
             ),
 
-            // Shutter button
+            // Bottom capture controls: gallery upload + camera shutter.
             Positioned(
               bottom: 40,
               left: 0,
               right: 0,
-              child: Center(
-                child: GestureDetector(
-                  onTap: _isCapturing ? null : _captureAndUpload,
-                  child: SizedBox(
-                    width: 80,
-                    height: 80,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        if (_isCapturing)
-                          const CircularProgressIndicator(
-                            color: AppTheme.accent,
-                            strokeWidth: 4,
-                          ),
-                        Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _isCapturing ? Colors.grey : Colors.white,
-                            border: Border.all(
-                              color: _isCapturing ? Colors.white38 : AppTheme.primary,
-                              width: 4,
-                            ),
-                          ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: _isCapturing ? null : _pickFromGalleryAndUpload,
+                    child: Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withValues(alpha: 0.55),
+                        border: Border.all(
+                          color: _isCapturing ? Colors.white24 : AppTheme.accent,
+                          width: 2,
                         ),
-                      ],
+                      ),
+                      child: Icon(
+                        Icons.photo_library_outlined,
+                        color: _isCapturing ? Colors.white38 : Colors.white,
+                        size: 28,
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 24),
+                  GestureDetector(
+                    onTap: _isCapturing ? null : _captureAndUpload,
+                    child: SizedBox(
+                      width: 80,
+                      height: 80,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          if (_isCapturing)
+                            const CircularProgressIndicator(
+                              color: AppTheme.accent,
+                              strokeWidth: 4,
+                            ),
+                          Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _isCapturing ? Colors.grey : Colors.white,
+                              border: Border.all(
+                                color: _isCapturing ? Colors.white38 : AppTheme.primary,
+                                width: 4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
 
@@ -384,15 +508,119 @@ class _CameraScreenState extends State<CameraScreen>
                         style: const TextStyle(color: Colors.white),
                       ),
                       const SizedBox(height: 16),
-                      ElevatedButton(
+                      const ElevatedButton(
                         onPressed: openAppSettings,
-                        child: const Text('Open Settings'),
+                        child: Text('Open Settings'),
                       ),
                     ],
                   ),
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Animated green/cyan corner brackets that breathe around the scan
+/// reticle, giving an enterprise-scanner feel. While a verification is
+/// in flight the brackets lock to bright cyan.
+class _ScannerBrackets extends StatefulWidget {
+  const _ScannerBrackets({required this.active});
+
+  /// Whether a verification upload is currently in flight.
+  final bool active;
+
+  @override
+  State<_ScannerBrackets> createState() => _ScannerBracketsState();
+}
+
+class _ScannerBracketsState extends State<_ScannerBrackets>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (context, _) {
+        final t = Curves.easeInOut.transform(_pulse.value);
+        final color = widget.active
+            ? AppTheme.accent
+            : Color.lerp(const Color(0xFF00E676), AppTheme.accent, t)!;
+        final opacity = widget.active ? 1.0 : 0.55 + 0.45 * t;
+        // Brackets breathe slightly outward from the reticle.
+        final scale = widget.active ? 1.02 : 1.0 + 0.03 * t;
+
+        return Transform.scale(
+          scale: scale,
+          child: Opacity(
+            opacity: opacity,
+            child: SizedBox(
+              width: 292,
+              height: 192,
+              child: Stack(
+                children: [
+                  Positioned(top: 0, left: 0, child: _bracket(color)),
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Transform.rotate(
+                      angle: math.pi / 2,
+                      child: _bracket(color),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Transform.rotate(
+                      angle: math.pi,
+                      child: _bracket(color),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    child: Transform.rotate(
+                      angle: -math.pi / 2,
+                      child: _bracket(color),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _bracket(Color color) {
+    return SizedBox(
+      width: 30,
+      height: 30,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: color, width: 3),
+            left: BorderSide(color: color, width: 3),
+          ),
         ),
       ),
     );

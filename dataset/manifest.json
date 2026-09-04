@@ -1,0 +1,68 @@
+{
+  "project": "Dawae-Check Validation Dataset",
+  "version": "1.0.0",
+  "capture_specifications": {
+    "magnification": "3x optical/macro zoom",
+    "lighting": "Even diffuse white light (5000K)",
+    "format": "JPEG 24-bit RGB",
+    "resolution": "1280x960"
+  },
+  "samples": [
+    {
+      "filename": "sample_augmentin_genuine.jpg",
+      "target_brand": "Augmentin 625mg",
+      "batch_number": "B492",
+      "gtin": "08964000123456",
+      "printed_expiry": "2026-12-31",
+      "packaging_type": "Authentic Offset Lithography Carton",
+      "expected_verdict": "GENUINE",
+      "expected_score_range": [
+        85,
+        100
+      ],
+      "purpose": "Control baseline showing sharp typography edges and absence of halftone noise."
+    },
+    {
+      "filename": "sample_panadol_expiry_mismatch.jpg",
+      "target_brand": "Panadol Extra",
+      "batch_number": "P811",
+      "gtin": "08964000654321",
+      "printed_expiry": "2027-12-31",
+      "packaging_type": "Tampered Genuine Box (Date Modified)",
+      "expected_verdict": "SUSPECTED_COUNTERFEIT",
+      "expected_score_range": [
+        0,
+        20
+      ],
+      "purpose": "Validates Layer 1 database hard-gate rejection when printed date deviates from registered official date."
+    },
+    {
+      "filename": "sample_brufen_fake_halftone.jpg",
+      "target_brand": "Brufen 400mg",
+      "batch_number": "BR204",
+      "gtin": "08964000987654",
+      "printed_expiry": "2026-08-31",
+      "packaging_type": "Commercial Inkjet Reprint on Cardstock",
+      "expected_verdict": "REVIEW RECOMMENDED",
+      "expected_score_range": [
+        50,
+        75
+      ],
+      "purpose": "Validates Layer 2 visual detection of CMYK halftone dot patterns and fuzzy line borders."
+    },
+    {
+      "filename": "sample_arinac_unregistered.jpg",
+      "target_brand": "Arinac Forte",
+      "batch_number": "AR999",
+      "gtin": "08964000112233",
+      "printed_expiry": "2025-11-30",
+      "packaging_type": "Illicit Packaging / Fabricated Batch",
+      "expected_verdict": "SUSPECTED_COUNTERFEIT",
+      "expected_score_range": [
+        0,
+        0
+      ],
+      "purpose": "Confirms zero-score hard stop when batch code is absent from the official registry."
+    }
+  ]
+}

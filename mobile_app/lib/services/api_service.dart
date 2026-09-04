@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 
 import '../core/constants.dart';
 import '../screens/error_screen.dart' show VerificationError;
@@ -36,10 +37,12 @@ class ApiService {
 
   /// Upload a packaging image for verification.
   ///
+  /// Uses XFile/bytes so the same code works on Web, Android, and iOS.
   /// Returns the parsed JSON response on success, or throws an exception
   /// with a user-friendly message on failure.
-  static Future<Map<String, dynamic>> verifyPackaging({
-    required File imageFile,
+  static Future<Map<String, dynamic>> verifyPackaging(
+    XFile imageFile, {
+    Uint8List? imageBytes,
     required String deviceId,
     required String facilityId,
     double? latitude,
@@ -53,15 +56,18 @@ class ApiService {
     if (latitude != null) request.fields['latitude'] = latitude.toString();
     if (longitude != null) request.fields['longitude'] = longitude.toString();
 
-    final bytes = await imageFile.readAsBytes();
+    final bytes = imageBytes ?? await imageFile.readAsBytes();
     if (bytes.length > ApiConstants.maxImageSize) {
       throw Exception('Image is too large. Maximum size is 15 MB.');
     }
 
+    final filename = imageFile.name.isNotEmpty
+        ? imageFile.name
+        : 'packaging_${DateTime.now().millisecondsSinceEpoch}.jpg';
     final multipartFile = http.MultipartFile.fromBytes(
       'file',
       bytes,
-      filename: 'packaging_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      filename: filename,
     );
     request.files.add(multipartFile);
 

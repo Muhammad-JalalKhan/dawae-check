@@ -1,19 +1,22 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 /// Backend API configuration for Dawae-Check.
 ///
 /// Override the base URL at build time:
-///   flutter run --dart-define=BASE_URL=https://dawae-check-api.onrender.com
-///   flutter build apk --release --dart-define=BASE_URL=https://your-host
+///   flutter run -d chrome --dart-define=BASE_URL=http://127.0.0.1:8000
+///   flutter build apk --release --dart-define=BASE_URL=https://your-deployed-host
 ///
 /// Defaults:
+///   - Web (Chrome): http://localhost:8000
 ///   - Android emulator: http://10.0.2.2:8000 (maps to host localhost)
-///   - iOS simulator / desktop: http://localhost:8000
+///   - iOS simulator / physical device: http://localhost:8000
 class ApiConstants {
   const ApiConstants._();
 
   /// Production / deployed backend URL (override with --dart-define=BASE_URL).
   static const String baseUrl = String.fromEnvironment(
     'BASE_URL',
-    defaultValue: 'http://10.0.2.2:8000',
+    defaultValue: kIsWeb ? 'http://localhost:8000' : 'http://10.0.2.2:8000',
   );
 
   static const String verifyEndpoint = '/api/v1/verify-packaging';

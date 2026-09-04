@@ -3,8 +3,9 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.db.session import Base, engine
@@ -38,6 +39,26 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# ── Exception catcher (inside CORS, see docstring) ────────────────────────
+@app.middleware("http")
+async def catch_unhandled_errors(request: Request, call_next):
+    """Return a JSON 500 for unhandled errors instead of crashing the ASGI app.
+
+    Registered before CORSMiddleware so CORS wraps it; otherwise a raw 500
+    response skips CORS headers and the browser reports "Failed to fetch".
+    """
+    try:
+        return await call_next(request)
+    except Exception:
+        logger.exception(
+            "Unhandled error on %s %s", request.method, request.url.path
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal verification pipeline error"},
+        )
+
 
 # ── CORS Middleware ──────────────────────────────────────────────────────────
 app.add_middleware(
