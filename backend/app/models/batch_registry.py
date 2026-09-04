@@ -13,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    true,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -34,7 +35,7 @@ class BatchRegistry(Base):
         _UUID,
         primary_key=True,
         default=uuid.uuid4,
-        server_default=func.text("gen_random_uuid()"),
+        server_default=func.gen_random_uuid(),
     )
     manufacturer_id: Mapped[uuid.UUID] = mapped_column(
         _UUID,
@@ -48,7 +49,7 @@ class BatchRegistry(Base):
     official_expiry: Mapped[date] = mapped_column(Date, nullable=False)
     manufacture_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=func.text("true")
+        Boolean, nullable=False, default=True, server_default=true()
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=func.now(), server_default=func.now()

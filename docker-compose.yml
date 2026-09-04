@@ -1,3 +1,5 @@
+# Local development stack.
+# The backend reads DATABASE_URL and AI credentials from .env — do NOT commit real secrets.
 version: "3.9"
 
 services:
@@ -17,8 +19,13 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Local Postgres from the db service
       DATABASE_URL: postgresql+asyncpg://dawae:dawae_pass@db:5432/dawaecheck
-      MOCK_AI_ENGINE: "true"
+      # Live AI (reads from .env passed through below)
+      MOCK_AI_ENGINE: ${MOCK_AI_ENGINE:-true}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      AI_MODEL_NAME: ${AI_MODEL_NAME:-qwen2.5-vl-72b-instruct}
     depends_on:
       - db
 

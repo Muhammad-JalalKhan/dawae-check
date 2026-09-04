@@ -1,0 +1,31 @@
+# Never bake secrets or local artifacts into the image
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+*.pyo
+
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# Local test scripts not needed at runtime
+test_scoring_local.py
+test_ai_live.py
+seed.py

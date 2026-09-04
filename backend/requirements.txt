@@ -8,3 +8,5 @@ pydantic-settings
 python-dotenv
 python-multipart
 aiosqlite
+openai
+pillow

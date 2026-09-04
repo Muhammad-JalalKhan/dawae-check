@@ -1,0 +1,40 @@
+name: dawae_check
+version: 1.0.0+1
+publish_to: "none"
+
+description: Dawae-Check — pharmaceutical packaging authenticity verification.
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  camera: ^0.11.0+2
+  http: ^1.2.2
+  permission_handler: ^11.3.1
+  google_fonts: ^6.2.1
+  image_picker: ^1.1.2
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.13.1
+
+# App launcher icons — run: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+  adaptive_icon_background: "#121212"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/

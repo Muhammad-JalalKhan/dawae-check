@@ -39,7 +39,7 @@ class ScannedLog(Base):
         _UUID,
         primary_key=True,
         default=uuid.uuid4,
-        server_default=func.text("gen_random_uuid()"),
+        server_default=func.gen_random_uuid(),
     )
     request_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     device_id: Mapped[str] = mapped_column(String(100), nullable=False)

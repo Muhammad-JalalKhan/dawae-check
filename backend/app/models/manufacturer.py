@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, String, Text, DateTime, Uuid, func
+from sqlalchemy import Boolean, String, Text, DateTime, Uuid, func, true
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,7 +19,7 @@ class Manufacturer(Base):
         _UUID,
         primary_key=True,
         default=uuid.uuid4,
-        server_default=func.text("gen_random_uuid()"),
+        server_default=func.gen_random_uuid(),
     )
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     drap_license_number: Mapped[str] = mapped_column(
@@ -29,7 +29,7 @@ class Manufacturer(Base):
     contact_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=func.text("true")
+        Boolean, nullable=False, default=True, server_default=true()
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=func.now(), server_default=func.now()

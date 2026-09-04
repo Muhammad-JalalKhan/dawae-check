@@ -27,7 +27,9 @@ class Settings(BaseSettings):
 
     # AI / Qwen
     DASHSCOPE_API_KEY: str = ""
-    QWEN_MODEL: str = "qwen2.5-vl-72b-instruct"
+    DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    AI_MODEL_NAME: str = "qwen2.5-vl-72b-instruct"
+    QWEN_MODEL: str = "qwen2.5-vl-72b-instruct"  # legacy alias
     MOCK_AI_ENGINE: bool = True  # Use mock AI engine for local/dev testing
 
     # Database

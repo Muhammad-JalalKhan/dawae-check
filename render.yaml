@@ -4,10 +4,25 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
+    plan: free
+    healthCheckPath: /api/v1/health
     envVars:
+      # ── Database (Supabase pooler, set in Render dashboard) ──────────
+      # URL-encode special chars in the password (e.g. @ → %40)
       - key: DATABASE_URL
         sync: false
-      - key: MOCK_AI_ENGINE
-        value: "true"
+      # ── Live AI (Alibaba Cloud Model Studio / DashScope) ─────────────
       - key: DASHSCOPE_API_KEY
         sync: false
+      - key: DASHSCOPE_BASE_URL
+        sync: false
+      - key: AI_MODEL_NAME
+        sync: false
+      # ── AI mode: live inference (Phase 1 verified) ───────────────────
+      - key: MOCK_AI_ENGINE
+        value: "false"
+      # ── Clone detection tuning (defaults) ────────────────────────────
+      - key: CLONE_DETECTION_WINDOW_HOURS
+        value: "24"
+      - key: CLONE_DETECTION_LOCATION_THRESHOLD
+        value: "3"
