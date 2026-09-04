@@ -1,4 +1,4 @@
-"""Standalone test script – runs all 5 seeded medicines through db_gate + scoring.
+"""Standalone test script – runs gate + scoring scenarios against the seeded registry.
 
 Usage:
     cd backend/
@@ -32,37 +32,36 @@ from seed import seed
 
 TEST_CASES = [
     {
-        "name": "Augmentin 625mg (valid match)",
-        "gtin": "08964000123456",
-        "batch_number": "B492",
-        "expiry": "2026-12-31",
+        "name": "Lowplat Plus 75mg (valid match)",
+        "gtin": "08964001422372",
+        "batch_number": "6D284",
+        "expiry": "2028-03-31",
         "s_visual": 85,
         "expected": {"s_db": 1, "s_rule": 100, "verdict": "GENUINE"},
     },
     {
-        "name": "Panadol Extra (expiry mismatch)",
-        "gtin": "08964000234567",
-        "batch_number": "P1137",
-        "expiry": "2026-03-31",  # DB has 2025-03-31; extracted matches spec.md §2.2.2
+        "name": "Valtic 40mg (expiry mismatch)",
+        "gtin": "08964002023370",
+        "batch_number": "205",
+        "expiry": "2027-12-31",  # registry has 2027-04-30 for batch 205
         "s_visual": 35,
         "expected": {"s_db": 1, "s_rule": 0, "verdict": "SUSPECTED_COUNTERFEIT"},
-        # NOTE: spec.md §2.2.2 expects REVIEW_RECOMMENDED but used an older formula
-        # with a +50 baseline. The authoritative formula S_DB×(0.60×S_rule+0.40×S_visual)
+        # The authoritative formula S_DB×(0.60×S_rule+0.40×S_visual)
         # yields max 40 when s_rule=0, so expiry mismatch → always SUSPECTED_COUNTERFEIT.
     },
     {
-        "name": "Arinac Forte (unregistered batch)",
-        "gtin": "08964000456789",
-        "batch_number": "AR-887",
-        "expiry": "2026-12-31",
+        "name": "Unregistered batch (control)",
+        "gtin": "08964009999999",
+        "batch_number": "ZZ-999",
+        "expiry": "2028-01-31",
         "s_visual": 35,
         "expected": {"s_db": 0, "s_rule": 0, "verdict": "SUSPECTED_COUNTERFEIT"},
     },
     {
-        "name": "Brufen 400mg (valid DB / fake print)",
-        "gtin": "08964000345678",
-        "batch_number": "BF-2210",
-        "expiry": "2027-06-30",
+        "name": "Rosut-10 10mg (valid DB / fake print)",
+        "gtin": "08964001581987",
+        "batch_number": "051",
+        "expiry": "2027-07-31",
         # Low s_visual simulates detected print defects (halftone dots, ink bleed).
         # This is the "valid DB / fake print" case — batch is real but the
         # physical packaging shows signs of counterfeiting.
@@ -74,10 +73,10 @@ TEST_CASES = [
 
 # Clone scenario will be added dynamically after seeding scanned_logs
 CLONE_SCENARIO = {
-    "name": "Augmentin CLONE (cloned serial)",
-    "gtin": "08964000123456",
-    "batch_number": "B492",
-    "expiry": "2026-12-31",
+    "name": "Lowplat Plus CLONE (cloned serial)",
+    "gtin": "08964001422372",
+    "batch_number": "6D284",
+    "expiry": "2028-03-31",
     "s_visual": 85,
     "expected": {"s_db": 1, "s_rule": 50, "verdict": "REVIEW_RECOMMENDED"},
     # score = 1 × (0.60×50 + 0.40×85) = 64 → REVIEW_RECOMMENDED
@@ -85,10 +84,10 @@ CLONE_SCENARIO = {
 
 
 async def seed_clone_logs(session: AsyncSession) -> None:
-    """Insert scanned_log rows that trigger clone detection for Augmentin.
+    """Insert scanned_log rows that trigger clone detection for Lowplat Plus.
 
     Creates 3 entries with distinct facility_ids within the last 24h
-    for the same (gtin, batch_number) — Augmentin's GTIN/B492.
+    for the same (gtin, batch_number) — Lowplat Plus 75mg / 6D284.
     The clone detection threshold is 3 distinct facilities.
     Idempotent: skips if clone-test logs already exist.
     """
@@ -113,9 +112,9 @@ async def seed_clone_logs(session: AsyncSession) -> None:
             device_id=f"DEV-CLONE-{idx+1:03d}",
             facility_id=fac_id,
             matched_batch_id=None,
-            extracted_gtin="08964000123456",
-            extracted_batch_number="B492",
-            extracted_expiry=date(2026, 12, 31),
+            extracted_gtin="08964001422372",
+            extracted_batch_number="6D284",
+            extracted_expiry=date(2028, 3, 31),
             layer1_status="PASSED",
             layer2_status="PENDING",
             authenticity_score=0,
@@ -125,7 +124,7 @@ async def seed_clone_logs(session: AsyncSession) -> None:
         session.add(log)
 
     await session.commit()
-    print("  [add]  3 clone-test scanned_logs inserted for Augmentin (3 distinct facilities)")
+    print("  [add]  3 clone-test scanned_logs inserted for Lowplat Plus (3 distinct facilities)")
 
 
 async def run_tests() -> None:

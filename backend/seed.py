@@ -1,175 +1,352 @@
-"""Seed script – populates the database with test manufacturers and batch data.
+"""Seed script – populates batch_registry with the verified medicine dataset.
+
+Connection: DATABASE_URL is read from the environment / .env by
+app.core.config (pydantic-settings) and consumed through the shared
+async SQLAlchemy engine (postgresql+asyncpg) in app.db.session.
 
 Run via:
-    python -m backend.seed
-    # or
     python backend/seed.py
 
-Idempotent: inserts missing data and updates existing rows to match this file.
+Idempotent: every row is upserted with ON CONFLICT (batch_number) DO
+UPDATE, so running the script repeatedly refreshes records in place
+without duplicating rows.
 """
 
 import asyncio
-import sys
 import os
+import sys
 from datetime import date
+from decimal import Decimal
 
 # Ensure the backend package is importable
-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(__file__))
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert
 
+from app.core.config import settings
 from app.db.session import async_session_factory, engine, Base
-from app.models.manufacturer import Manufacturer
 from app.models.batch_registry import BatchRegistry
 
 
-# ── Seed data ────────────────────────────────────────────────────────────────
+# ── Seed data: 15 verified medicines (extracted from packaging photos) ──────
 
-MANUFACTURERS = [
+MEDICINES = [
     {
-        "company_name": "GlaxoSmithKline",
-        "drap_license_number": "DRAP-GSK-001",
-        "contact_email": "compliance@gsk.com.pk",
-        "contact_phone": "+92-21-111-222-333",
-        "address": "Plot 23, SITE Industrial Area, Karachi, Pakistan",
-        "is_active": True,
+        "brand_name": "Lowplat Plus 75mg",
+        "gtin": "08964001422372",
+        "batch_number": "6D284",
+        "manufacturer": "PharmEvo (Pvt.) Ltd.",
+        "drap_reg_number": "047177",
+        "mfg_lic_number": "000504",
+        "mfg_date": date(2026, 4, 1),
+        "official_expiry": date(2028, 3, 31),
+        "mrp": Decimal("298.76"),
     },
     {
-        "company_name": "Alpha Pharma",
-        "drap_license_number": "DRAP-ALPHA-003",
-        "contact_email": "regulatory@alphapharma.example",
-        "contact_phone": "+966-000-000-000",
-        "address": "King Abdullah Economic City, Saudi Arabia",
-        "is_active": True,
+        "brand_name": "Rosut-10 10mg",
+        "gtin": "08964001581987",
+        "batch_number": "051",
+        "manufacturer": "Genix Pharma",
+        "drap_reg_number": "056081",
+        "mfg_lic_number": "000454",
+        "mfg_date": date(2025, 7, 1),
+        "official_expiry": date(2027, 7, 31),
+        "mrp": Decimal("325.00"),
+    },
+    {
+        "brand_name": "Valtic 40mg",
+        "gtin": "08964002023370",
+        "batch_number": "205",
+        "manufacturer": "Tabros Pharma (Pvt) Ltd.",
+        "drap_reg_number": "055899",
+        "mfg_lic_number": "000106",
+        "mfg_date": date(2025, 5, 1),
+        "official_expiry": date(2027, 4, 30),
+        "mrp": Decimal("330.00"),
+    },
+    {
+        "brand_name": "Valtic 40mg",
+        "gtin": "08964002023370",
+        "batch_number": "217",
+        "manufacturer": "Tabros Pharma (Pvt) Ltd.",
+        "drap_reg_number": "055899",
+        "mfg_lic_number": "000106",
+        "mfg_date": date(2025, 10, 1),
+        "official_expiry": date(2027, 9, 30),
+        "mrp": Decimal("346.00"),
+    },
+    {
+        "brand_name": "Nuberol Forte",
+        "gtin": "08964000271960",
+        "batch_number": "DH0273",
+        "manufacturer": "The Searle Company Ltd.",
+        "drap_reg_number": "027196",
+        "mfg_lic_number": "000647",
+        "mfg_date": date(2026, 5, 1),
+        "official_expiry": date(2029, 5, 31),
+        "mrp": Decimal("200.00"),
+    },
+    {
+        "brand_name": "B-Card 5mg",
+        "gtin": "08964001790990",
+        "batch_number": "KSH002",
+        "manufacturer": "The Searle Company Ltd.",
+        "drap_reg_number": "104015",
+        "mfg_lic_number": "000016",
+        "mfg_date": date(2026, 4, 20),
+        "official_expiry": date(2028, 4, 19),
+        "mrp": Decimal("415.00"),
+    },
+    {
+        "brand_name": "Nupenta 40mg",
+        "gtin": "08964002066025",
+        "batch_number": "T37031",
+        "manufacturer": "Standpharm Pakistan",
+        "drap_reg_number": "095820",
+        "mfg_lic_number": "000844",
+        "mfg_date": date(2025, 11, 1),
+        "official_expiry": date(2027, 10, 31),
+        "mrp": Decimal("486.00"),
+    },
+    {
+        "brand_name": "Concor 2.5mg",
+        "gtin": "08964001517108",
+        "batch_number": "47235",
+        "manufacturer": "Martin Dow Marker Ltd",
+        "drap_reg_number": "028000",
+        "mfg_lic_number": "000028",
+        "mfg_date": date(2026, 4, 7),
+        "official_expiry": date(2029, 4, 6),
+        "mrp": Decimal("192.03"),
+    },
+    {
+        "brand_name": "Ciprofloxacin 500mg",
+        "gtin": "08964001786122",
+        "batch_number": "A-173",
+        "manufacturer": "Stanley Pharmaceuticals (Pvt) Ltd.",
+        "drap_reg_number": "032008",
+        "mfg_lic_number": "000434",
+        "mfg_date": date(2026, 1, 1),
+        "official_expiry": date(2029, 1, 31),
+        "mrp": Decimal("170.00"),
+    },
+    {
+        "brand_name": "Pediatric Cough/Allergy Syrup",
+        "gtin": None,
+        "batch_number": "07A26",
+        "manufacturer": "Licensed Pharma",
+        "drap_reg_number": "009763",
+        "mfg_lic_number": "000140",
+        "mfg_date": date(2026, 1, 1),
+        "official_expiry": date(2029, 1, 31),
+        "mrp": Decimal("155.00"),
+    },
+    {
+        "brand_name": "Pasmec Tablets",
+        "gtin": None,
+        "batch_number": "414",
+        "manufacturer": "Pasteur & Fleming Pharmaceuticals Pvt. Ltd.",
+        "drap_reg_number": "01188",
+        "mfg_lic_number": "1188910296",
+        "mfg_date": date(2025, 6, 1),
+        "official_expiry": date(2027, 5, 31),
+        "mrp": Decimal("960.00"),
+    },
+    {
+        "brand_name": "Mektum Homoeo Drops",
+        "gtin": None,
+        "batch_number": "50497",
+        "manufacturer": "Mektum Homoeo Pharma",
+        "drap_reg_number": "00126",
+        "mfg_lic_number": None,
+        "mfg_date": date(2025, 4, 1),
+        "official_expiry": date(2028, 4, 30),
+        "mrp": Decimal("210.00"),
+    },
+    {
+        "brand_name": "Concor 5mg",
+        "gtin": "08964001517115",
+        "batch_number": "46955",
+        "manufacturer": "Martin Dow Marker Ltd",
+        "drap_reg_number": "010194",
+        "mfg_lic_number": "000028",
+        "mfg_date": date(2026, 3, 9),
+        "official_expiry": date(2029, 3, 8),
+        "mrp": Decimal("348.74"),
+    },
+    {
+        "brand_name": "Gas-Gone Syrup",
+        "gtin": None,
+        "batch_number": "014",
+        "manufacturer": "Swift Care Pharma (Pvt) Ltd.",
+        "drap_reg_number": "00723",
+        "mfg_lic_number": None,
+        "mfg_date": date(2026, 4, 1),
+        "official_expiry": date(2029, 3, 31),
+        "mrp": Decimal("250.00"),
+    },
+    {
+        "brand_name": "Calcimix Syrup",
+        "gtin": None,
+        "batch_number": "007",
+        "manufacturer": "Swift Care Pharma (Pvt) Ltd.",
+        "drap_reg_number": "00723",
+        "mfg_lic_number": None,
+        "mfg_date": date(2025, 12, 1),
+        "official_expiry": date(2028, 11, 30),
+        "mrp": Decimal("250.00"),
     },
 ]
 
-BATCHES = [
-    # 1. Genuine baseline: Augmentin 14 Tablets (GlaxoSmithKline)
-    {
-        "brand_lookup": "GlaxoSmithKline",
-        "gtin": "08964000123456",
-        "brand_name": "Augmentin 14 Tablets",
-        "batch_number": "B492",
-        "drap_reg_number": "REG-PAK-00201",
-        "official_expiry": date(2026, 12, 31),
-        "manufacture_date": date(2024, 6, 15),
-        "is_active": True,
-    },
-    # 2. Expiry mismatch test: Adol 24 Caplets (Paracetamol)
-    #    DB expiry is intentionally expired to force S_rule=0 during testing.
-    {
-        "brand_lookup": "Alpha Pharma",
-        "gtin": "08964000654321",
-        "brand_name": "Adol 24 Caplets",
-        "batch_number": "P811",
-        "drap_reg_number": "REG-PAK-00184",
-        "official_expiry": date(2024, 6, 30),
-        "manufacture_date": date(2022, 6, 1),
-        "is_active": True,
-    },
-    # 3. Unregistered control: C-Retard 500mg (Hikma)
-    #    This product is deliberately NOT inserted into batch_registry so any
-    #    scan should fail the database gate with S_DB=0.
-]
-
-UNSEEDED_PRODUCT_NAMES = ["C-Retard 500mg", "C-Retard"]
+# Columns refreshed by the upsert (everything except the natural key
+# batch_number and the surrogate batch_id / timestamps).
+_UPDATE_COLUMNS = (
+    "gtin",
+    "brand_name",
+    "manufacturer",
+    "drap_reg_number",
+    "mfg_lic_number",
+    "mfg_date",
+    "official_expiry",
+    "mrp",
+    "is_active",
+)
 
 
-# ── Seeding logic ────────────────────────────────────────────────────────────
+# ── Schema migration ────────────────────────────────────────────────────────
 
-async def seed() -> None:
-    """Insert manufacturers and batches idempotently."""
+async def _ensure_schema() -> None:
+    """Create or migrate the batch_registry table to the current schema.
 
-    # Ensure tables exist
-    import app.models  # noqa: F401
+    The legacy table (manufacturer FK + manufacture_date, no MRP) is
+    dropped and recreated exactly once; scan history keeps its rows with
+    the dangling batch references nulled. Re-runs on the current schema
+    are no-ops, so the script stays fully idempotent.
+    """
+    import app.models  # noqa: F401 — populate Base.metadata
+
     async with engine.begin() as conn:
+        # Create any missing tables first (fresh databases).
         await conn.run_sync(Base.metadata.create_all)
 
+        table_exists = (
+            await conn.execute(
+                text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_name = 'batch_registry'"
+                )
+            )
+        ).scalar()
+
+        if table_exists:
+            # The current schema is identified by the `mrp` column.
+            has_mrp = (
+                await conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.columns "
+                        "WHERE table_name = 'batch_registry' "
+                        "AND column_name = 'mrp'"
+                    )
+                )
+            ).scalar()
+            if not has_mrp:
+                print("  [migrate] Legacy batch_registry detected — recreating with current schema")
+                # CASCADE drops the scanned_logs FK that points at the
+                # legacy table.
+                await conn.execute(text("DROP TABLE batch_registry CASCADE"))
+                await conn.run_sync(
+                    Base.metadata.create_all, tables=[BatchRegistry.__table__]
+                )
+                # Scan history referenced legacy batch ids — keep the audit
+                # rows, null the dangling references.
+                await conn.execute(
+                    text("UPDATE scanned_logs SET matched_batch_id = NULL")
+                )
+                print("  [migrate] scanned_logs.matched_batch_id references cleared")
+
+        # Restore the scanned_logs FK if the CASCADE above removed it.
+        fk_exists = (
+            await conn.execute(
+                text(
+                    "SELECT 1 FROM pg_constraint "
+                    "WHERE conname = 'scanned_logs_matched_batch_id_fkey'"
+                )
+            )
+        ).scalar()
+        if not fk_exists:
+            await conn.execute(
+                text(
+                    "ALTER TABLE scanned_logs ADD CONSTRAINT "
+                    "scanned_logs_matched_batch_id_fkey FOREIGN KEY "
+                    "(matched_batch_id) REFERENCES batch_registry (batch_id)"
+                )
+            )
+
+
+# ── Seeding logic ───────────────────────────────────────────────────────────
+
+async def seed() -> None:
+    """Upsert all verified medicine batches (ON CONFLICT DO UPDATE)."""
+    await _ensure_schema()
+
+    print(f"  [seed] Target database: {settings.DATABASE_URL.split('@')[-1]}\n")
+
     async with async_session_factory() as session:
-        session: AsyncSession
-
-        # --- Manufacturers ---
-        mfr_map: dict[str, Manufacturer] = {}
-        for mfr_data in MANUFACTURERS:
-            stmt = select(Manufacturer).where(
-                Manufacturer.drap_license_number == mfr_data["drap_license_number"]
+        for med in MEDICINES:
+            stmt = insert(BatchRegistry).values(**med)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["batch_number"],
+                set_={col: getattr(stmt.excluded, col) for col in _UPDATE_COLUMNS},
             )
-            result = await session.execute(stmt)
-            existing = result.scalar_one_or_none()
-            if existing:
-                existing.company_name = mfr_data["company_name"]
-                existing.contact_email = mfr_data["contact_email"]
-                existing.contact_phone = mfr_data["contact_phone"]
-                existing.address = mfr_data["address"]
-                existing.is_active = mfr_data["is_active"]
-                print(f"  [sync] Manufacturer: {mfr_data['company_name']}")
-                mfr_map[mfr_data["company_name"]] = existing
-            else:
-                mfr = Manufacturer(**mfr_data)
-                session.add(mfr)
-                mfr_map[mfr_data["company_name"]] = mfr
-                print(f"  [add]  Manufacturer: {mfr_data['company_name']}")
-
-        await session.flush()  # ensure manufacturer_ids are assigned
-
-        # --- Unseeded controls ---
-        # Keep C-Retard absent from Supabase so scans hard-fail with S_DB=0.
-        for product_name in UNSEEDED_PRODUCT_NAMES:
-            stmt = select(BatchRegistry).where(
-                BatchRegistry.brand_name.ilike(f"%{product_name}%")
-            )
-            result = await session.execute(stmt)
-            stale_rows = result.scalars().all()
-            for stale in stale_rows:
-                await session.delete(stale)
-                print(
-                    "  [delete] Unseeded control row removed: "
-                    f"{stale.brand_name} / {stale.batch_number}"
-                )
-
-        # --- Batches ---
-        for batch_data in BATCHES:
-            stmt = select(BatchRegistry).where(
-                BatchRegistry.gtin == batch_data["gtin"],
-                BatchRegistry.batch_number == batch_data["batch_number"],
-            )
-            result = await session.execute(stmt)
-            existing = result.scalar_one_or_none()
-            manufacturer = mfr_map[batch_data["brand_lookup"]]
-            if existing:
-                existing.manufacturer_id = manufacturer.manufacturer_id
-                existing.brand_name = batch_data["brand_name"]
-                existing.drap_reg_number = batch_data["drap_reg_number"]
-                existing.official_expiry = batch_data["official_expiry"]
-                existing.manufacture_date = batch_data["manufacture_date"]
-                existing.is_active = batch_data["is_active"]
-                print(
-                    f"  [sync] Batch: {batch_data['brand_name']} / "
-                    f"{batch_data['batch_number']}"
-                )
-                continue
-
-            batch = BatchRegistry(
-                manufacturer_id=manufacturer.manufacturer_id,
-                gtin=batch_data["gtin"],
-                brand_name=batch_data["brand_name"],
-                batch_number=batch_data["batch_number"],
-                drap_reg_number=batch_data["drap_reg_number"],
-                official_expiry=batch_data["official_expiry"],
-                manufacture_date=batch_data["manufacture_date"],
-                is_active=batch_data["is_active"],
-            )
-            session.add(batch)
+            await session.execute(stmt)
             print(
-                f"  [add]  Batch: {batch_data['brand_name']} / "
-                f"{batch_data['batch_number']}"
+                f"  [upsert] {med['brand_name']:<30} batch={med['batch_number']:<8} "
+                f"expiry={med['official_expiry']} mrp={med['mrp']}"
             )
-
         await session.commit()
-        print("\nSeed complete.")
+
+    # Confirmation table of everything now active in the registry.
+    async with async_session_factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(BatchRegistry)
+                    .where(BatchRegistry.is_active.is_(True))
+                    .order_by(BatchRegistry.brand_name, BatchRegistry.batch_number)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    print(f"\n{'=' * 122}")
+    print(f"SEED CONFIRMATION — {len(rows)} active batch_registry records")
+    print(f"{'=' * 122}")
+    header = (
+        f"| {'#':>2} | {'Brand':<30} | {'Batch':<7} | {'GTIN':<14} | "
+        f"{'DRAP':<6} | {'Mfg Date':<10} | {'Expiry':<10} | {'MRP':>7} | {'Manufacturer':<40} |"
+    )
+    print(header)
+    print(
+        f"|{'-' * 4}|{'-' * 32}|{'-' * 9}|{'-' * 16}|{'-' * 8}"
+        f"|{'-' * 12}|{'-' * 12}|{'-' * 9}|{'-' * 42}|"
+    )
+    for i, row in enumerate(rows, 1):
+        print(
+            f"| {i:>2} | {row.brand_name:<30} | {row.batch_number:<7} | "
+            f"{(row.gtin or '—'):<14} | {(row.drap_reg_number or '—'):<6} | "
+            f"{str(row.mfg_date or '—'):<10} | {str(row.official_expiry):<10} | "
+            f"{(row.mrp if row.mrp is not None else '—'):>7} | {(row.manufacturer or '—'):<40} |"
+        )
+    print(f"{'=' * 122}")
+    print(f"Seed complete — {len(rows)}/{len(MEDICINES)} records active.\n")
+
+
+async def _main() -> None:
+    await seed()
+    await engine.dispose()
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    asyncio.run(_main())

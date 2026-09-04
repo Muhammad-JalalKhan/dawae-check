@@ -38,10 +38,8 @@ class Manufacturer(Base):
         DateTime(timezone=True), nullable=False, default=func.now(), server_default=func.now()
     )
 
-    # Relationships
-    batches: Mapped[list["BatchRegistry"]] = relationship(  # noqa: F821
-        "BatchRegistry", back_populates="manufacturer"
-    )
+    # NOTE: BatchRegistry no longer references this table — the registry
+    # stores the manufacturer as a plain string column. Kept for history.
 
     def __repr__(self) -> str:
         return f"<Manufacturer {self.company_name}>"

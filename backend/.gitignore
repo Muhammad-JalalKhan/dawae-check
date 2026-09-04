@@ -1,6 +1,18 @@
 .env
 .env.*
+*.env
 !.env.example
+
+# Keys / certificates / signing material
+*.pem
+*.key
+*.jks
+*.keystore
+
+# Provider config files containing credentials
+*service-account*.json
+secrets.json
+google-services.json
 
 __pycache__/
 *.py[cod]

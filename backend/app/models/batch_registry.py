@@ -2,13 +2,14 @@
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
-    ForeignKey,
     Index,
+    Numeric,
     String,
     UniqueConstraint,
     Uuid,
@@ -26,8 +27,9 @@ _UUID = Uuid().with_variant(UUID(as_uuid=True), "postgresql")
 class BatchRegistry(Base):
     __tablename__ = "batch_registry"
     __table_args__ = (
-        UniqueConstraint("gtin", "batch_number", name="uq_gtin_batch"),
-        Index("idx_batch_registry_gtin_batch", "gtin", "batch_number"),
+        # Natural key — powers ON CONFLICT (batch_number) DO UPDATE upserts.
+        UniqueConstraint("batch_number", name="uq_batch_registry_batch_number"),
+        Index("idx_batch_registry_gtin", "gtin"),
         Index("idx_batch_registry_drap", "drap_reg_number"),
     )
 
@@ -37,17 +39,15 @@ class BatchRegistry(Base):
         default=uuid.uuid4,
         server_default=func.gen_random_uuid(),
     )
-    manufacturer_id: Mapped[uuid.UUID] = mapped_column(
-        _UUID,
-        ForeignKey("manufacturers.manufacturer_id"),
-        nullable=False,
-    )
-    gtin: Mapped[str] = mapped_column(String(20), nullable=False)
-    brand_name: Mapped[str] = mapped_column(String(255), nullable=False)
     batch_number: Mapped[str] = mapped_column(String(100), nullable=False)
-    drap_reg_number: Mapped[str] = mapped_column(String(100), nullable=False)
+    gtin: Mapped[str | None] = mapped_column(String(14), nullable=True)
+    brand_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    manufacturer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    drap_reg_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    mfg_lic_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    mfg_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     official_expiry: Mapped[date] = mapped_column(Date, nullable=False)
-    manufacture_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    mrp: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )
@@ -59,9 +59,6 @@ class BatchRegistry(Base):
     )
 
     # Relationships
-    manufacturer: Mapped["Manufacturer"] = relationship(  # noqa: F821
-        "Manufacturer", back_populates="batches"
-    )
     scanned_logs: Mapped[list["ScannedLog"]] = relationship(  # noqa: F821
         "ScannedLog", back_populates="matched_batch"
     )

@@ -225,6 +225,7 @@ async def check_database_gate(
         "gtin": batch.gtin,
         "brand_name": batch.brand_name,
         "batch_number": batch.batch_number,
+        "manufacturer": batch.manufacturer,
         "official_expiry": str(batch.official_expiry),
         "drap_reg_number": batch.drap_reg_number,
         "drap_status": drap_status,

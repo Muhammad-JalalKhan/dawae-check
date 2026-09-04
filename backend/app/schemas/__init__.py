@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -45,25 +46,29 @@ class VerifyResponse(BaseModel):
 
 class BatchCreate(BaseModel):
     """Request body for POST /api/v1/batches."""
-    manufacturer_id: str
-    gtin: str
+    gtin: str | None = None
     brand_name: str
     batch_number: str
-    drap_reg_number: str
+    manufacturer: str | None = None
+    drap_reg_number: str | None = None
+    mfg_lic_number: str | None = None
+    mfg_date: date | None = None
     official_expiry: date
-    manufacture_date: date | None = None
+    mrp: Decimal | None = None
 
 
 class BatchResponse(BaseModel):
     """Response for batch lookup / creation."""
     batch_id: str
-    manufacturer_id: str
-    gtin: str
+    gtin: str | None = None
     brand_name: str
     batch_number: str
-    drap_reg_number: str
+    manufacturer: str | None = None
+    drap_reg_number: str | None = None
+    mfg_lic_number: str | None = None
+    mfg_date: date | None = None
     official_expiry: date
-    manufacture_date: date | None = None
+    mrp: Decimal | None = None
     is_active: bool
 
     model_config = {"from_attributes": True}
