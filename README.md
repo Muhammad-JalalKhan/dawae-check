@@ -6,7 +6,7 @@
 
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Expo](https://img.shields.io/badge/Frontend-Expo%20%2F%20React%20Native-000020.svg?style=flat&logo=expo)](https://expo.dev/)
-[![AI Vision Engine](https://img.shields.io/badge/VLM-Qwen2.5--VL--72B-6366F1.svg)](https://dashscope.aliyun.com/)
+[![AI Vision Engine](https://img.shields.io/badgeqwen-vl-plus-6366F1.svg)](https://dashscope.aliyun.com/)
 [![Database](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-3ECF8E.svg?style=flat&logo=supabase)](https://supabase.com/)
 [![Deployment](https://img.shields.io/badge/Cloud-Render-46E3B7.svg?style=flat&logo=render)](https://render.com/)
 
