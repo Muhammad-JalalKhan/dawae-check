@@ -47,3 +47,8 @@ env/
 # Project documentation/files to keep private
 *.pdf
 spec.md
+
+# Mobile expo ignores
+mobile_expo/node_modules/
+mobile_expo/.expo/
+mobile_expo/dist/

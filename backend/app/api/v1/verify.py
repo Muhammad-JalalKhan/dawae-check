@@ -61,7 +61,11 @@ def _build_technical_summary(verdict: str, layer1: dict, layer2: dict) -> str:
     return " ".join(parts)
 
 
+# Registered at BOTH paths so a trailing-slash POST matches directly instead
+# of hitting Starlette's 307 redirect (browsers/fetch drop multipart bodies
+# on cross-origin redirects, surfacing as a network rejection).
 @router.post("/verify-packaging", response_model=VerifyResponse)
+@router.post("/verify-packaging/", response_model=VerifyResponse, include_in_schema=False)
 async def verify_packaging(
     file: UploadFile = File(..., description="3x macro packaging photo (JPEG)"),
     device_id: str = Form(..., description="Device identifier e.g. MOB-98421"),
@@ -72,12 +76,16 @@ async def verify_packaging(
 ):
     """Run dual-gate verification on an uploaded packaging image."""
 
+    # 0. Read the upload first so incoming traffic is immediately visible in
+    # Render logs, before any pipeline work begins.
+    image_bytes = await file.read()
+    print(f"[VERIFY] Received upload: {file.filename}, size: {len(image_bytes)} bytes")
+
     # 1. Generate unique request_id
     short_uuid = uuid.uuid4().hex[:8]
     request_id = f"req-{short_uuid}"
 
-    # 2. Read image and call AI engine
-    image_bytes = await file.read()
+    # 2. Call AI engine
     try:
         ai_result = await analyze_packaging(image_bytes)
     except NotImplementedError as exc:
