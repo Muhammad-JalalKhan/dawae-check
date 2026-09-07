@@ -21,7 +21,7 @@
 ## 📌 Verification Pipeline Overview
 
 <p align="center">
-  <img src="pipeline_architecture.png" alt="Hybrid AI Pharmaceutical Verification Pipeline" width="100%" />
+<img width="2816" height="1536" alt="Gemini_Generated_Image_hh6blrhh6blrhh6b" src="https://github.com/user-attachments/assets/6d5d993d-5839-41c2-be63-fda7ed9f0f4b" />
 </p>
 
 The Dawae-Check pipeline operates in 4 synchronized phases to eliminate both digital serialization clones and physical packaging counterfeits:
@@ -48,8 +48,6 @@ Dawae-Check bridges this gap by validating both the **digital registry** and the
 
 ## ⚙️ Core Architecture & Dual-Gate Engine
 
-
-<img width="2816" height="1536" alt="Gemini_Generated_Image_hh6blrhh6blrhh6b" src="https://github.com/user-attachments/assets/6d5d993d-5839-41c2-be63-fda7ed9f0f4b" />
 
                       
                       ┌────────────────────────┐
