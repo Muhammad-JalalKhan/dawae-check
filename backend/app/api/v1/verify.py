@@ -39,6 +39,10 @@ def _build_technical_summary(verdict: str, layer1: dict, layer2: dict) -> str:
                 " DRAP registration number was not printed on the scanned "
                 "flap and was inferred from the official registry."
             )
+        for reason in layer1.get("reasons", []):
+            if "OCR dot-matrix" in reason:
+                summary += f" {reason}."
+                break
         return summary
     parts: list[str] = []
     if layer1["status"] == "FAILED":
@@ -85,11 +89,18 @@ async def verify_packaging(
     short_uuid = uuid.uuid4().hex[:8]
     request_id = f"req-{short_uuid}"
 
-    # 2. Call AI engine
+    # 2. Call AI engine. Live-model API/parse failures surface as a clean
+    # 503 with the cause — never as an unhandled 500 pipeline error.
     try:
         ai_result = await analyze_packaging(image_bytes)
     except NotImplementedError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError as exc:
+        logger.error("AI engine failed for %s: %s", request_id, exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Vision AI engine failed: {str(exc)[:200]}",
+        ) from exc
 
     ocr = ai_result["ocr"]
     visual = ai_result["visual"]
@@ -113,9 +124,6 @@ async def verify_packaging(
         extracted_drap=extracted_drap,
     )
 
-    s_db: int = layer1_result["s_db"]
-    s_rule: int = layer1_result["s_rule"]
-
     # 4. Layer-2: visual score
     print_quality_score: float = float(visual.get("print_quality_score", 0))
     detected_defects: list[dict] = visual.get("detected_defects", [])
@@ -128,8 +136,25 @@ async def verify_packaging(
     elif any(d.get("confidence", 0) >= 0.8 for d in detected_defects):
         layer2_status = "FAILED"
 
-    # 5. Compute final score
-    authenticity_score, verdict = compute_final_score(s_db, s_rule, s_visual)
+    # 5. Compute the verdict. An unregistered batch (matched_record is None)
+    # is a valid verification outcome, NEVER a server error: return a 200 OK
+    # SUSPECTED_COUNTERFEIT verdict with a zero score. Mismatched-but-
+    # registered batches flow through the scorer normally (also a 200 OK).
+    if layer1_result["matched_record"] is None:
+        verdict = "SUSPECTED_COUNTERFEIT"
+        authenticity_score = 0.0
+        technical_summary = (
+            "Batch not found in DRAP registry. Suspected counterfeit packaging."
+        )
+    else:
+        authenticity_score, verdict = compute_final_score(
+            layer1_result["s_db"], layer1_result["s_rule"], s_visual
+        )
+        technical_summary = _build_technical_summary(
+            verdict,
+            layer1_result,
+            {"status": layer2_status, "detected_defects": detected_defects},
+        )
 
     # 6. Build response dicts
     layer1_response = {
@@ -143,10 +168,6 @@ async def verify_packaging(
         "print_quality_score": print_quality_score,
         "detected_defects": detected_defects,
     }
-
-    technical_summary = _build_technical_summary(
-        verdict, layer1_result, {"status": layer2_status, "detected_defects": detected_defects}
-    )
 
     # 7. Persist to scanned_logs
     expiry_date: date | None = None

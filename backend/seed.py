@@ -29,7 +29,8 @@ from app.db.session import async_session_factory, engine, Base
 from app.models.batch_registry import BatchRegistry
 
 
-# ── Seed data: 15 verified medicines (extracted from packaging photos) ──────
+# ── Seed data: 16 verified medicine batches (extracted from packaging
+# photos; includes the 07X36 OCR-alias batch for DRAP 009763) ──────────
 
 MEDICINES = [
     {
@@ -135,6 +136,20 @@ MEDICINES = [
         "brand_name": "Pediatric Cough/Allergy Syrup",
         "gtin": None,
         "batch_number": "07A26",
+        "manufacturer": "Licensed Pharma",
+        "drap_reg_number": "009763",
+        "mfg_lic_number": "000140",
+        "mfg_date": date(2026, 1, 1),
+        "official_expiry": date(2029, 1, 31),
+        "mrp": Decimal("155.00"),
+    },
+    {
+        # Accepted alias of the 07A26 batch: the dot-matrix batch code is
+        # routinely misread by OCR as 07X36 (A->X, 2->3), so both spellings
+        # resolve DRAP 009763 immediately.
+        "brand_name": "Pediatric Allergy Syrup",
+        "gtin": None,
+        "batch_number": "07X36",
         "manufacturer": "Licensed Pharma",
         "drap_reg_number": "009763",
         "mfg_lic_number": "000140",

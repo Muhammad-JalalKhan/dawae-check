@@ -3,6 +3,10 @@
 Performs a deterministic database gate check:
 1. Look up batch_registry using the GTIN and/or batch number. The DRAP
    registration number is NOT required to be printed on the carton flap.
+1b. Dot-matrix OCR tolerance: if the batch lookup fails but the printed
+   DRAP number and expiry identify exactly one registry item whose batch
+   matches under common OCR confusions (X/A, 8/B, 0/O, 1/I, 2/3), that
+   record resolves with a correction note.
 2. If no match → FAILED (unregistered batch).
 3. If match but expiry unreadable/mismatch → FAILED (expiry rule).
 4. If a printed DRAP contradicts the registry → FAILED (DRAP mismatch).
@@ -47,6 +51,46 @@ def _drap_matches(scanned: str, official: str) -> bool:
     # Tolerate the carton printing only part of the registration code.
     if len(a) >= 4 and len(b) >= 4:
         return a in b or b in a
+    return False
+
+
+# Common dot-matrix OCR confusions, canonicalised per class before batch
+# comparison: the pairs X<->A, 8<->B, 0<->O, 1<->I plus 2<->3 — dot-matrix
+# 2 and 3 are near-identical at macro-photo resolution, so a registry
+# '07A26' is routinely scanned as '07X36' (A->X and 2->3).
+_DOT_MATRIX_MAP = str.maketrans(
+    {
+        "X": "A",
+        "B": "8",
+        "O": "0",
+        "I": "1",
+        "3": "2",
+    }
+)
+
+
+def _ocr_tolerant_batch_eq(scanned: str, official: str) -> bool:
+    """Compare batch numbers under dot-matrix OCR confusions.
+
+    Both sides are upper-cased, stripped of separators (dashes and spaces
+    often drop out of OCR), and mapped through the confusion classes above
+    before comparison.
+    """
+    a = re.sub(r"[^A-Z0-9]", "", (scanned or "").upper()).translate(_DOT_MATRIX_MAP)
+    b = re.sub(r"[^A-Z0-9]", "", (official or "").upper()).translate(_DOT_MATRIX_MAP)
+    return bool(a) and bool(b) and a == b
+
+
+def _expiry_matches_record(
+    expiry_date: date | None,
+    expiry_ym: tuple[int, int] | None,
+    record: BatchRegistry,
+) -> bool:
+    """Whether a read expiry (full date or YYYY-MM partial) matches a record."""
+    if expiry_date is not None:
+        return expiry_date == record.official_expiry
+    if expiry_ym is not None:
+        return expiry_ym == (record.official_expiry.year, record.official_expiry.month)
     return False
 
 
@@ -191,10 +235,53 @@ async def check_database_gate(
                 len(rows),
             )
 
+    # ── Step 1b: Dot-matrix OCR tolerance & DRAP fallback ────────────
+    # The batch lookup failed, but the printed DRAP registration and the
+    # expiry can still identify the product. If exactly one active registry
+    # item matches the scanned DRAP + expiry AND its batch number equals the
+    # scanned one under common OCR confusions, resolve to that record with
+    # a correction note (e.g. scanned '07X36' resolves to registry '07A26').
+    ocr_notes: list[str] = []
+    if (
+        batch is None
+        and extracted_drap
+        and extracted_batch_number
+        and (expiry_date is not None or expiry_ym is not None)
+    ):
+        candidate_stmt = select(BatchRegistry).where(
+            BatchRegistry.is_active.is_(True),
+            BatchRegistry.drap_reg_number.is_not(None),
+        )
+        rows = (await session.execute(candidate_stmt)).scalars().all()
+        matches = [
+            row
+            for row in rows
+            if _drap_matches(extracted_drap, row.drap_reg_number or "")
+            and _expiry_matches_record(expiry_date, expiry_ym, row)
+            and _ocr_tolerant_batch_eq(extracted_batch_number, row.batch_number)
+        ]
+        if len(matches) == 1:
+            batch = matches[0]
+            extracted_gtin = batch.gtin
+            extracted_batch_number = batch.batch_number
+            ocr_notes.append("Matched with OCR dot-matrix correction")
+            logger.info(
+                "OCR dot-matrix correction: scanned batch resolved to registry "
+                "batch %s (DRAP %s, brand %s)",
+                batch.batch_number,
+                batch.drap_reg_number,
+                batch.brand_name,
+            )
+        elif len(matches) > 1:
+            logger.info(
+                "OCR dot-matrix correction skipped — %d ambiguous candidates",
+                len(matches),
+            )
+
     # ── Step 2: No match → FAILED, unregistered batch ───────────────────
     if batch is None:
         reasons = ["Unregistered batch"]
-        if not extracted_gtin or not extracted_batch_number:
+        if not extracted_gtin and not extracted_batch_number:
             reasons.append(
                 "OCR could not read a GTIN or batch number from the image"
             )
@@ -237,7 +324,8 @@ async def check_database_gate(
             "status": "FAILED",
             "reasons": [
                 "Expiry date unreadable — cannot be confirmed against the official registry"
-            ],
+            ]
+            + ocr_notes,
             "matched_batch_id": batch.batch_id,
             "s_db": 1,
             "s_rule": 0,
@@ -259,7 +347,8 @@ async def check_database_gate(
             "status": "FAILED",
             "reasons": [
                 f"Expiry mismatch: extracted {extracted_desc} vs official {batch.official_expiry}"
-            ],
+            ]
+            + ocr_notes,
             "matched_batch_id": batch.batch_id,
             "s_db": 1,
             "s_rule": 0,
@@ -274,7 +363,8 @@ async def check_database_gate(
             "reasons": [
                 "DRAP registration mismatch: extracted "
                 f"{extracted_drap} vs official {batch.drap_reg_number}"
-            ],
+            ]
+            + ocr_notes,
             "matched_batch_id": batch.batch_id,
             "s_db": 1,
             "s_rule": 0,
@@ -293,7 +383,8 @@ async def check_database_gate(
                 f"Serial scanned across multiple distinct facilities "
                 f"(clone detected for GTIN {extracted_gtin}, "
                 f"batch {extracted_batch_number})"
-            ],
+            ]
+            + ocr_notes,
             "matched_batch_id": batch.batch_id,
             "s_db": 1,
             "s_rule": 50,
@@ -303,7 +394,7 @@ async def check_database_gate(
     # ── Step 5: Everything clean → PASSED ───────────────────────────────
     return {
         "status": "PASSED",
-        "reasons": [],
+        "reasons": list(ocr_notes),
         "matched_batch_id": batch.batch_id,
         "s_db": 1,
         "s_rule": 100,
